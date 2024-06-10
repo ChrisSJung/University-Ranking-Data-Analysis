@@ -1,0 +1,566 @@
+---
+title: "STA302 final project 3"
+author: "Group 41"
+date: '2023-12-12-11:05pm'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+#please comment these after running this chunk once
+packageurl <- "https://cran.r-project.org/src/contrib/Archive/pbkrtest/pbkrtest_0.4-4.tar.gz" 
+install.packages(packageurl, repos=NULL, type="source")
+install.packages("car", dependencies=TRUE)
+```
+
+```{r, include = FALSE}
+library(car)
+library(tidyr)
+library(dplyr)
+library(janitor)
+library(knitr)
+library(ggplot2)
+```
+
+```{r, include = FALSE}
+raw_data <- read.csv("Preprocessed World University Rankings 2023 Dataset.csv")
+```
+
+#data cleaning
+```{r, include = FALSE}
+raw_data2 <- raw_data %>% clean_names()
+```
+
+```{r, include = FALSE}
+uni_data <- raw_data2 %>% dplyr::select(no_of_student,international_student,teaching_score,research_score,industry_income_score, over_all_score_max) %>% rename("overall_score" = "over_all_score_max")
+```
+
+#changing international students to categorical
+```{r, include = FALSE}
+uni_data$international_student <- factor(
+ ifelse(uni_data$international_student <= 0.1, 0,
+  ifelse(uni_data$international_student <= 0.2, 1,
+  ifelse(uni_data$international_student <= 0.3, 2, 3))),
+  levels = 0:3, labels = c(" 0-10%", " 11-20%", " 21-30%", " >30%"))
+```
+Variables of interests was first cleaned from . to _ for the spacing.
+We changed the international students variable to categorical variable for four levels
+
+#Exploratory Data Analysis
+
+
+#Graphical Summaries
+```{r, echo = TRUE}
+uni_data %>% select(where(is.numeric)) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~key, scales = "free") +
+  geom_density(color = "grey", line = "red")
+```
+
+From the Graphical Summaries in the Exploratory data, we can see that all the predictors and the response variable are heavily left skewed. So, we will have to deal with possible Normality and Linearity Assumption violation.
+
+
+
+#fitting the model
+```{r, echo=TRUE}
+uni_model <- lm(overall_score ~ no_of_student + teaching_score + research_score + 
+                industry_income_score + international_student, data = uni_data)
+summary(uni_model)
+
+```
+
+
+We must do a additional conditions and violated assumptions check.
+
+Using the response variable, we will fit a histogram to get a quick understanding of the response variable
+```{r, echo = TRUE}
+hist(uni_data$overall_score)
+```
+It shows that it is right skewed where there lies an exception around 35-40 for overall_score. This hints that we may have to do a log transformation
+
+To check for any additional conditions violated, we will check the Response vs Fitted plot and Predictor Piece-wise scatterplot
+```{r, echo = TRUE}
+plot1<- plot(x = uni_data$overall_score, y = fitted(uni_model), main = "Response vs Fitted",
+     xlab = "Fitted", ylab = "Overall Score") %>%  abline(a = 0, b = 1, lty = 2)
+
+```
+
+
+```{r, echo = TRUE}
+predictors <- uni_data[, c("no_of_student", "teaching_score", "research_score", "industry_income_score")]
+
+plot2 <- pairs(predictors) 
+
+```
+From looking at the two additional conditions, there does not seems to be any violation. 
+
+
+To check for any violated assumptions, we will check the residual vs fitted values and QQplot
+```{r, echo = TRUE}
+y_hat <- fitted(uni_model)
+e_hat <- resid(uni_model)
+
+par(mfrow=c(1,2))
+
+
+plot3 <- plot(x = y_hat, y = e_hat, main = "Residual vs. Fitted", xlab = "Fitted", ylab = "Residuals")
+
+qqnorm(e_hat)
+qqline(e_hat)
+
+
+```
+
+We notice that there is an issue with constant variance and normality. A possible Constance variance assumption violation can be found in the Residual vs. Fitted. And  a possible Normality Assumption violation can be found in the Normal Q-Q plot.
+
+We will attempt a variance-stabilizing transformation to see if it improves our data.
+
+
+
+
+#variance stabilizing of the full model on the mean response
+```{r, echo = TRUE}
+# transform your response
+uni_data$lnOverall_score <- log(uni_data$overall_score)
+
+# fit a new model using transformed response
+trans_model1 <- lm(lnOverall_score ~ no_of_student + teaching_score + research_score + 
+                industry_income_score + international_student, data = uni_data)
+
+summary(trans_model1)
+
+```
+
+```{r, echo = TRUE}
+y_hat <- fitted(trans_model1)
+e_hat <- resid(trans_model1)
+
+par(mfrow=c(1,2))
+
+
+plot(x = y_hat, y = e_hat, main = "Residual vs. Fitted", xlab = "Fitted", ylab = "Residuals")
+
+qqnorm(e_hat)
+qqline(e_hat)
+
+
+```
+By looking at these two sets of scatterplot, doing a variance stabilizing transformation worsened the assumed violation of model assumptions.
+
+Lets take a look at the histogram as well.
+
+```{r, echo = TRUE}
+hist(uni_data$lnOverall_score)
+```
+From this it shows that the data is less right skewed. Still, our residuals vs fitted values looks less promising after the variance-stabilization of the response variable. So, we will keep it as it is. And we move on to BoxCox Transformation.
+
+
+```{r, echo = TRUE}
+boxCox(uni_model)
+```
+
+```{r, echo = TRUE}
+# transform your response
+uni_data$boxOverall_score <- (uni_data$overall_score)^1.25
+# fit a new model using transformed response
+trans_model2 <- lm(boxOverall_score~ no_of_student + teaching_score + research_score + 
+                industry_income_score + international_student, data = uni_data)
+trans_model2
+
+```
+
+```{r, echo = TRUE}
+# extract necessary information from model og_model
+e_hat <- resid(trans_model2)
+y_hat <- fitted(trans_model2)
+
+# plot residuals vs fitted value plot
+par(mfrow=c(1,2))
+plot(x = y_hat, y = e_hat, main = "Residual vs. Fitted", xlab="Fitted Values", ylab="Residuals")
+
+# plot qq plot
+qqnorm(e_hat)
+qqline(e_hat)
+```
+So, both the transformations for the response variables do not improve the MLR.
+We will now attempt transformations on the predictors
+
+```{r, echo = TRUE}
+p <- powerTransform(cbind(uni_data[,c(1,3,4,5)]))
+summary(p)
+```
+Based on the rounder power column, we should transform teaching_score by a power of -1/3 and industry_income_score by a power of -3
+
+```{r, echo = TRUE}
+uni_data$no_of_student3 <- (uni_data$no_of_student)^(1/5) #fifth root
+uni_data$teaching_score3 <- (uni_data$teaching_score)^(-(1/3))
+uni_data$research_score3 <- log(uni_data$research_score)
+uni_data$industry_income_score3 <- (uni_data$industry_income_score)^(-3)
+
+# fit a new model using transformed response and transformed predictors
+trans_model3 <- lm(overall_score~ no_of_student3 + teaching_score3 + research_score3 + 
+                industry_income_score3 + international_student, data = uni_data)
+summary(trans_model3)
+```
+
+
+
+```{r, echo = TRUE}
+# extract necessary information from model og_model
+e_hat <- resid(trans_model3)
+y_hat <- fitted(trans_model3)
+
+# plot residuals vs fitted value plot
+par(mfrow=c(1,2))
+plot(x = y_hat, y = e_hat, main = "Residual vs. Fitted", xlab="Fitted Values", ylab="Residuals")
+
+# plot qq plot
+qqnorm(e_hat)
+qqline(e_hat)
+
+```
+The constant variance assumption seems to be much better than the initial full model. The severity of the normal assumption did not improve.
+
+Now, we will look at the overall graph that shows the skewness of each predictor and response with and without transformation
+
+#Graphical Summaries of uni data showing all different transformations
+```{r, echo = TRUE}
+uni_data %>% select(where(is.numeric)) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~key, scales = "free") +
+  geom_density(color = "grey", line = "red")
+```
+This chart shows all the transformations we have attempted so far from our initial model.
+We can see that taking the natural logarithm of overall score was affective so constant variance stabilizing transformation seems most suitable.
+We can see that the predictors have all become much less right skewed. So, we we will try to combine the best transformations before we do the ANOVA test.
+
+```{r}
+# fit a new model using transformed response and transformed predictors
+trans_model4 <- lm(lnOverall_score~ no_of_student3 + teaching_score3 + research_score3 + 
+                industry_income_score3 + international_student, data = uni_data)
+summary(trans_model4)
+```
+```{r}
+# extract necessary information from model trans_model4
+e_hat <- resid(trans_model4)
+y_hat <- fitted(trans_model4)
+
+# plot residuals vs fitted value plot
+par(mfrow=c(1,2))
+plot(x = y_hat, y = e_hat, main = "Residual vs. Fitted", xlab="Fitted Values", ylab="Residuals")
+
+# plot qq plot
+qqnorm(e_hat)
+qqline(e_hat)
+```
+Despite, attempting to combine the transformations to find the best model, our linearity assumption has actually worsened. So, this indicates that trans_model3 is the best one so far.
+
+Let's try doing BoxCox transformation on the reponse variable and the predictors at once.
+
+```{r}
+# fit a new model using transformed response and transformed predictors
+trans_model5 <- lm(boxOverall_score~ no_of_student3 + teaching_score3 + research_score3 + 
+                industry_income_score3 + international_student, data = uni_data)
+summary(trans_model5)
+```
+```{r}
+# extract necessary information from model trans_model5
+e_hat <- resid(trans_model4)
+y_hat <- fitted(trans_model4)
+
+# plot residuals vs fitted value plot
+par(mfrow=c(1,2))
+plot(x = y_hat, y = e_hat, main = "Residual vs. Fitted", xlab="Fitted Values", ylab="Residuals")
+
+# plot qq plot
+qqnorm(e_hat)
+qqline(e_hat)
+```
+Again, attempting to combine the transformations to find the best model, our linearity assumption has actually worsened. So, this indicates that trans_model3 is the best one so far.
+
+So, our best model before going into ANOVA test to see if any predictor is not signficant is trans_model3.
+
+
+```{r}
+
+e_hat <- resid(trans_model3)
+y_hat <- fitted(trans_model3)
+
+par(mfrow=c(1,2))
+
+# plot(x = data$no_of_student, y = e_hat, main="Residual vs Number of Students",
+     # xlab="Number of Students", ylab="Residual")
+
+plot(x = uni_data$no_of_student, y = e_hat, main="Residual vs Number of Students",
+     xlab="Number of Students", ylab="Residual")
+
+plot(x = uni_data$no_of_student3, y = e_hat, main="Residual vs (Number of Students)^(1/4)",
+     xlab="Transformed Number of Students", ylab="Residual")
+
+plot(x = uni_data$teaching_score, y = e_hat, main="Residual vs Teaching Score",
+     xlab="Teaching Score", ylab="Residual")
+
+plot(x = uni_data$teaching_score3, y = e_hat, main="Residual vs (Teaching Score)^(-1/3)",
+     xlab="Transformed Teaching Score", ylab="Residual")
+
+plot(x = uni_data$research_score, y = e_hat, main="Residual vs Research Score",
+     xlab="Research Score", ylab="Residual")
+
+plot(x = uni_data$research_score3, y = e_hat, main="Residual vs ln(Research Score)",
+     xlab="Transformed Research Score", ylab="Residual")
+
+plot(x = uni_data$industry_income_score, y = e_hat, main="Residual vs Industry Income Score",
+     xlab="Industry Income Score", ylab="Residual")
+
+plot(x = uni_data$industry_income_score3, y = e_hat, main="Residual vs (Industry Income Score)^(-3)",
+     xlab="Transformed Industry Income Score", ylab="Residual")
+# par(mfrow=c(1,1))
+
+#boxplot(e_hat ~ data$international_student, main="Residual vs International Students",
+  #      xlab="International Student", ylab="Residuals")
+
+qqnorm(e_hat)
+qqline(e_hat)
+```
+
+
+```{r}
+# ANOVA Test
+summary(trans_model3)
+# p-value is smaller than a = 0.05, we can conclude a statistically significant linear relationship exists for at least one predictor
+
+```
+
+
+# Hypothesis Test (t-test) for each Coefficients
+
+Assume $\alpha$ = 0.05. For the predictor variable no_of_student3, the p-value is smaller than $\alpha$  = 0.05. We can reject H0 and conclude that there is a statistically significant linear relationship between Y (overall_score) and X1 (no_of_student3.)
+
+Assume $\alpha$  = 0.05. For the predictor variable teaching_score3, the p-value is smaller than $\alpha$  = 0.05. We can reject H0 and conclude that there is a statistically significant linear relationship between Y (overall_score) and X1 (teaching_score3). 
+
+Assume $\alpha$  = 0.05. For the predictor variable research_score, the p-value is smaller than $\alpha$  = 0.05. We can reject H0 and conclude that there is a statistically significant linear relationship between Y (overall_score) and X1 (research_score).
+
+Assume $\alpha$  = 0.05. For the predictor variable industry_income_score3, the p-value is smaller than $\alpha$  = 0.05. We can reject H0 and conclude that there is a statistically significant linear relationship between Y (overall_score) and X1 (industry_income_score3).
+
+Assume $\alpha$  = 0.05. For the predictor variable international_student, the p-value is smaller than $\alpha$  = 0.05. We can reject H0 and conclude that there is a statistically significant linear relationship between Y (overall_score) and X1 (international_student).
+
+
+Since all predictors are significant and all the variables are variables of interest, partial f-test is not necessary.
+
+
+So, the best model for now is trans_model3:
+
+```{r, echo = TRUE}
+summary(trans_model3)
+```
+Again, before we check for model assumptions, let's check for additional conditions: the conditional mean response and conditional mean prediciton conditions.
+
+
+```{r, echo = TRUE}
+plot(x = uni_data$overall_score, y = fitted(trans_model3), main = "Response vs Fitted",
+     xlab = "Fitted", ylab = "Overall Score")
+abline(a = 0, b = 1, lty = 2)
+
+```
+
+```{r, echo = TRUE}
+predictors <- uni_data[, c("no_of_student3", "teaching_score3", "research_score3", "industry_income_score3")]
+
+pairs(predictors)
+```
+From looking at the two additional conditions, there does not seems to be any violation.
+
+To check for any violated assumptions, we will check the residual vs fitted values and QQplot.
+
+```{r, echo = TRUE}
+# extract necessary information from model og_model
+e_hat <- resid(trans_model3)
+y_hat <- fitted(trans_model3)
+
+# plot residuals vs fitted value plot
+par(mfrow=c(1,2))
+plot(x = y_hat, y = e_hat, main="Residuals vs Fitted", xlab="Fitted Values", ylab="Residuals")
+
+# plot qq plot
+qqnorm(e_hat)
+qqline(e_hat)
+```
+In comparison to the original model, there has been an improvement in the residual vs. fitted plot; however, a potential violation of the constant variance assumption persists. The plot still exhibits a curving pattern, indicating non-linearity.
+Looking at the normal Q-Q plot, it suggests a potential violation of the Normality Assumption. However, considering our original data, the deviation remains within an acceptable range.
+
+#Diagnostics
+
+For Sue: in module 7 worksheet, they go through a multicollinearity check where they make a new model that addresses it 
+in module 8, they talk about influence points and other problematic observations.
+
+We will investigate the presence of multicollinearity in our new model(new_uni_model).
+
+```{r, echo = TRUE}
+# find the VIF values of all predictors in the model
+vif(trans_model3)
+```
+Since all VIF values are below 5. there is no severe multicollinearity between the predictors in the model.
+
+Now fit a new model that removes the predictor with the largest VIF value.
+
+```{r, echo = TRUE}
+# remove largest VIF predictor
+new_uni_model2 <- lm(overall_score~ no_of_student3 + teaching_score3  + 
+                industry_income_score3 + international_student, data = uni_data)
+summary(new_uni_model2)
+
+# recheck multicollinearity
+vif(new_uni_model2)
+```
+
+```{r, echo = TRUE}
+plot(x = uni_data$overall_score, y = fitted(new_uni_model2), main = "Response vs Fitted",
+     xlab = "Fitted", ylab = "Overall Score")
+abline(a = 0, b = 1, lty = 2)
+```
+```{r, echo = TRUE}
+predictors <- uni_data[, c("no_of_student3", "teaching_score3", "industry_income_score3", "international_student")]
+
+pairs(predictors)
+```
+
+
+```{r, echo = TRUE}
+# extract necessary information from model og_model
+e_hat <- resid(new_uni_model2)
+y_hat <- fitted(new_uni_model2)
+
+# plot residuals vs fitted value plot
+par(mfrow=c(1,2))
+plot(x = y_hat, y = e_hat, main="Residuals vs Fitted", xlab="Fitted Values", ylab="Residuals")
+
+# plot qq plot
+qqnorm(e_hat)
+qqline(e_hat)
+```
+#problematic observations (module 8)
+
+```{r, echo = TRUE}
+nrow(uni_data)
+```
+There were 2341 observations in total 
+
+##for trans_model3
+```{r}
+#leverage points (hii)
+hii1 <- hatvalues(trans_model3)
+length(which(hii1 > 2*(8/2341))) #cutoff is 2(p+1 / n), where n =2341, p = 7
+```
+```{r}
+#outlying points (ri)
+ri1 <- rstandard(trans_model3)
+length(which(ri1 > 4 | ri1 < -4))
+```
+No outlying points
+
+```{r}
+#influential points that affect the estimation of all fitted values (Cook's Distance)
+
+di1 <-cooks.distance(trans_model3)
+length(which(di1 > qf(0.5, 8, 2333)))  #qf(0.5, p+1, n-p-1), where n =2341, p = 7
+```
+```{r}
+#influential points that affect its own fitted value (DFFITS)
+
+dffits1 <- dffits(trans_model3)
+length(which(abs(dffits1) > 2*sqrt(8/2341))) #cutoff: 2(sqrt(p+1 /n))
+```
+```{r}
+#influential points that affect the estimated value of at least one coefficients 
+
+dffbetas1 <- dfbetas(trans_model3)
+dim(dffbetas1)
+cutoff_dfbetas1 <- 2/sqrt(2341)
+length(which(abs(dffbetas1[,1]) > cutoff_dfbetas1))
+length(which(abs(dffbetas1[,2]) > cutoff_dfbetas1))
+length(which(abs(dffbetas1[,3]) > cutoff_dfbetas1))
+length(which(abs(dffbetas1[,4]) > cutoff_dfbetas1))
+length(which(abs(dffbetas1[,5]) > cutoff_dfbetas1))
+length(which(abs(dffbetas1[,6]) > cutoff_dfbetas1))
+length(which(abs(dffbetas1[,7]) > cutoff_dfbetas1))
+length(which(abs(dffbetas1[,8]) > cutoff_dfbetas1))
+```
+
+##for new_uni_model2
+This model has one less predictors
+```{r}
+#leverage points hii
+hii2 <- hatvalues(new_uni_model2) 
+length(which(hii2 > 2*(7/2341))) #cutoff is 2(p+1 / n), where n =2341, p = 6
+```
+
+```{r, echo =TRUE}
+#outlying points, ri
+ri2 <- rstandard(new_uni_model2)
+length(which(ri2 > 4 | ri2 < -4))
+```
+No outlying points
+
+```{r, echo = TRUE}
+#influential points that affect the estimation of all fitted values (Cook's Distance)
+
+di2 <-cooks.distance(new_uni_model2)
+length(which(di2 > qf(0.5, 7, 2334))) #qf(0.5, p+1, n-p-1), where n =2341, p = 6
+```
+
+
+```{r, echo = TRUE}
+#influential points that affect its own fitted value (DFFITS)
+
+dffits2 <- dffits(new_uni_model2)
+length(which(abs(dffits2) > 2*sqrt(7/2341))) #cutoff is 2(sqrt(p+1 / n)), where n =2341, p = 6
+```
+
+```{r, echo = TRUE}
+#influential points that affect the estimated value of at least one coefficients (DFBETAS)
+
+dffbetas2 <- dfbetas(new_uni_model2)
+dim(dffbetas2)
+cutoff_dfbetas2 <- 2/sqrt(2341)
+length(which(abs(dffbetas2[,1]) > cutoff_dfbetas2))
+length(which(abs(dffbetas2[,2]) > cutoff_dfbetas2))
+length(which(abs(dffbetas2[,3]) > cutoff_dfbetas2))
+length(which(abs(dffbetas2[,4]) > cutoff_dfbetas2))
+length(which(abs(dffbetas2[,5]) > cutoff_dfbetas2))
+length(which(abs(dffbetas2[,6]) > cutoff_dfbetas2))
+length(which(abs(dffbetas2[,7]) > cutoff_dfbetas2))
+```
+```{r, echo = TRUE}
+#study for t-model
+p = length(coef(trans_model3))-1
+           
+n = nrow(uni_data)
+cbind(summary(trans_model3)$adj.r.squared, extractAIC(trans_model3, k=2)[2],
+      extractAIC(trans_model3, k=log(n))[2],
+      extractAIC(trans_model3, k=2)[2] + (2*(p+2)*(p+3)/(n-p-1)))
+```
+```{r, echo = TRUE}
+#study for v-model
+p = length(coef(new_uni_model2))-1
+           
+n = nrow(uni_data)
+cbind(summary(new_uni_model2)$adj.r.squared, extractAIC(new_uni_model2, k=2)[2],
+      extractAIC(new_uni_model2, k=log(n))[2],
+      extractAIC(new_uni_model2, k=2)[2] + (2*(p+2)*(p+3)/(n-p-1)))
+```
+Conclusion:
+
+T-model has better adjusted R^2 (higher) and AIC values (lower)
+
+
+
+
+
+
